@@ -1,0 +1,247 @@
+---
+title: "Data Science Salaries"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: row
+    vertical_layout: scroll
+    theme:
+      version: 4
+      bootswatch: sketchy
+---
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+
+options(scipen = 99) # me-non-aktifkan scientific notation
+library(tidyverse) # koleksi beberapa package R
+library(dplyr) # grammar of data manipulation
+library(readr) # membaca data
+library(ggplot2) # plot statis
+library(plotly) # plot interaktif
+library(glue) # setting tooltip
+library(scales) # mengatur skala pada plot
+library(readxl) # membaca data excel
+library(lubridate) # mengolah date and time
+library(googlesheets4) # membaca spreadsheet
+library(viridis)
+
+PL4 <- read_sheet('https://docs.google.com/spreadsheets/d/18ojqs_EfvYGDcQyW_DZBLrxONPMknyVGOqUhM457KUM/edit#gid=1634234137')
+PL4_R <- PL4 %>% 
+  mutate(Validation=as.factor(Validation),
+        Bulan=as.factor(Bulan)) %>%
+        select(-Kimfis.End)
+
+
+PL4_R$LT.Penimbangan <- difftime(time1 = PL4_R$Validasi.1.End,
+                           time2 = PL4_R$Penimbangan.Start,
+                           units = "days")
+
+PL4_R$LT.Pengolahan <- difftime(time1 = PL4_R$Sterilisasi.End,
+                           time2 = PL4_R$Validasi.2.Start,
+                           units = "days")
+
+PL4_R$LT.Produksi <- difftime(time1 = PL4_R$Sterilisasi.End,
+                           time2 = PL4_R$Penimbangan.Start,
+                           units = "days")
+
+PL4_R$LT.QC <- difftime(time1 = PL4_R$CHP.End,
+                           time2 = PL4_R$Sampel.Start,
+                           units = "days")
+
+PL4_R$LT.QA <- difftime(time1 = PL4_R$Disposisi.FG.End,
+                           time2 = PL4_R$CHP.Start,
+                           units = "days")
+
+PL4_R$LT.Line4 <- difftime(time1 = PL4_R$Disposisi.FG.End,
+                           time2 = PL4_R$Penimbangan.Start,
+                           units = "days")
+
+PL4_R$Bulan <- factor(PL4_R$Bulan, levels=month.abb)
+
+PL4_RF <- PL4_R %>% filter(Validation=="NV")
+
+
+```
+
+
+Infobox BN release
+```{r}
+a <- PL4_RF %>%
+  group_by(Bulan) %>% 
+  summarise(count = n()) %>% 
+  arrange(desc(count)) %>% 
+  ungroup()
+a
+```
+
+Infobox LT Production
+```{r}
+b <- PL4_RF %>%
+  group_by(Bulan) %>% 
+  summarise(mean.LTP = mean(LT.Produksi)) %>% 
+  arrange(desc(mean.LTP)) %>% 
+  ungroup()
+b
+```
+
+Infobox LT QC
+```{r}
+c <- PL4_RF %>%
+  group_by(Bulan) %>% 
+  summarise(mean.LTP = mean(LT.QC)) %>% 
+  arrange(desc(mean.LTP)) %>% 
+  ungroup()
+c
+```
+
+Infobox LT QA
+```{r}
+d <- PL4_RF %>%
+  group_by(Bulan) %>% 
+  summarise(mean.LTP = mean(LT.QA)) %>% 
+  arrange(desc(mean.LTP)) %>% 
+  ungroup()
+d
+```
+
+Plot Bar PCT Line 4
+```{r}
+ e <- PL4_RF %>% 
+  group_by(Bulan) %>% 
+  summarise(mean.LT.Line4 = mean(LT.Line4)) %>% 
+  mutate(label = glue("Bulan: {Bulan}
+                      PCT Line 4: {mean.LT.Line4} days"))
+
+plot1 <- e %>% 
+  ggplot(aes(x = Bulan,
+             y = mean.LT.Line4,
+             text = label)) + 
+  geom_col(fill="green")+
+  theme_minimal() +
+  geom_hline(yintercept = 16)+
+  theme(legend.position = "none") +
+  labs(title = "Plant Cycle Time Line 4",
+       x = 'Bulan',
+       y = 'Plant Cycle Time')
+
+ggplotly(plot1, tooltip = "text")
+```
+
+
+
+Boxplot PCT Line 4
+```{r}
+ea <- PL4_RF %>% 
+  group_by(Bulan) %>% 
+  mutate(label = glue("Bulan: {Bulan}
+                      PCT Line 4: {LT.Line4} days"))
+
+plot12 <- ggplot(data = ea, mapping = aes(x = Bulan, y = LT.Line4, text=label)) +
+  geom_boxplot()+
+  geom_jitter()+
+  theme_minimal()+
+  labs(title = "Sebaran PCT Line 4",
+       x = NULL,
+       y = "Lead Time")
+
+ggplotly(plot12, tooltip = "text")
+```
+
+
+Line Plot LT Produksi
+```{r}
+f <- PL4_RF %>% 
+  group_by(Bulan) %>% 
+  summarise(mean.LT.Produksi = mean(LT.Produksi)) %>% 
+  mutate(label = glue("Bulan: {Bulan}
+                      LT.Produksi: {mean.LT.Produksi} days"))
+
+plot2 <- f %>% 
+  ggplot(aes(x = Bulan,
+             y = mean.LT.Produksi)) +
+  geom_line(aes(group=1), color = "red") +
+  geom_point(aes(text = label)) +
+  scale_y_continuous(labels = scales::comma) +
+labs(title = "Lead Time Production",
+       x = NULL,
+       y = "Lead Time") +
+  theme_minimal()
+
+ggplotly(plot2, tooltip = "text")
+```
+
+
+Line Plot LT Produksi Harian
+```{r}
+g <- PL4_RF %>% 
+  tail(10) %>% 
+  mutate(label = glue("Batch No.: {BN}
+                      LT.Produksi: {LT.Produksi} days"))
+
+plot3 <- g %>% 
+  ggplot(aes(x = BN,
+             y = LT.Produksi)) +
+  geom_line(aes(group=1), color = "red") +
+  geom_hline(yintercept = 2)+
+  geom_point(aes(text = label)) +
+  scale_y_continuous(labels = scales::comma) +
+labs(title = "Lead Time Production per BN",
+       x = NULL,
+       y = "Lead Time") +
+  theme_minimal()
+
+ggplotly(plot3, tooltip = "text")
+```
+
+
+
+Line Plot LT QC Harian
+```{r}
+h <- PL4_RF %>% 
+  tail(10) %>% 
+  mutate(label = glue("Batch No.: {BN}
+                      LT.QC: {LT.QC} days"))
+
+plot4 <- h %>% 
+  ggplot(aes(x = BN,
+             y = LT.QC)) +
+  geom_line(aes(group=1), color = "red") +
+  geom_point(aes(text = label)) +
+  geom_hline(yintercept = 14)+
+  scale_y_continuous(labels = scales::comma) +
+labs(title = "Lead Time QC per BN",
+       x = NULL,
+       y = "Lead Time") +
+  theme_minimal()
+
+ggplotly(plot4, tooltip = "text")
+```
+
+
+
+Line Plot LT QA Harian
+```{r}
+i <- PL4_RF %>% 
+  tail(10) %>% 
+  mutate(label = glue("Batch No.: {BN}
+                      LT.QA: {LT.QA} days"))
+
+plot5 <- i %>% 
+  ggplot(aes(x = BN,
+             y = LT.QA)) +
+  geom_line(aes(group=1), color = "red") +
+  geom_point(aes(text = label)) +
+  geom_hline(yintercept = 0.1)+
+  scale_y_continuous(labels = scales::comma) +
+labs(title = "Lead Time QA per BN",
+       x = NULL,
+       y = "Lead Time") +
+  theme_minimal()
+
+ggplotly(plot5, tooltip = "text")
+```
+
+
+
+```
+
